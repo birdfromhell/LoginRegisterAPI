@@ -13,10 +13,15 @@ from passlib.context import CryptContext
 from smtplib import SMTP
 import secrets
 
+from starlette.requests import Request
+from starlette.responses import HTMLResponse
+from starlette.templating import Jinja2Templates
+
 SQLALCHEMY_DATABASE_URL = "mysql+mysqlconnector://root:root@localhost/login_register"
 engine = create_engine(SQLALCHEMY_DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
+templates = Jinja2Templates(directory="templates")  # assumes a templates directory
 
 
 class UserDBModel(Base):
@@ -159,19 +164,9 @@ def forget_password(username: str, db: Session = Depends(get_db)):
     # For this example, you will return the token
     return {"message": "An email has been sent to reset your password."}
 
-
-@app.get("/reset")
-def reset_password(token: str, password: str = Form(...)):
-    # This is the reset password page
-    # In reality, you would return an HTML page here
-    if token != forgot_password_token:
-        return {"message": "Invalid or expired token."}
-
-    # This is where you would reset the password
-    # Here we just print it for simplicity
-    print(f"New password: {password}")
-
-    return RedirectResponse(url="/login")
+@app.get("/reset", response_class=HTMLResponse)
+def reset_password(request: Request, token: str):
+    return templates.TemplateResponse("reset_password.html", {"request": request, "token": token})
 
 
 if __name__ == "__main__":
