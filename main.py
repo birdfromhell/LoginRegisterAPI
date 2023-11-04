@@ -14,7 +14,7 @@ from smtplib import SMTP
 import secrets
 
 from starlette.requests import Request
-from starlette.responses import HTMLResponse
+from starlette.responses import HTMLResponse, JSONResponse
 from starlette.templating import Jinja2Templates
 
 SQLALCHEMY_DATABASE_URL = "mysql+mysqlconnector://root:root@localhost/login_register"
@@ -63,6 +63,10 @@ class TokenData(BaseModel):
     username: Optional[str] = None
 
 
+class ForgetPassword(BaseModel):
+    username: str
+
+
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 
@@ -109,6 +113,13 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     return encoded_jwt
 
 
+@app.get("/")
+def root():
+    headers = {"ngrok-skip-browser-warning": "1"}
+    content = {"message": "Hello, World!"}
+    return JSONResponse(content=content, headers=headers)
+
+
 @app.post("/token", response_model=Token)
 def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
     user = authenticate_user(db, form_data.username, form_data.password)
@@ -137,8 +148,8 @@ def register_user(user: User, db: Session = Depends(get_db)):
 
 
 @app.post("/forget_password")
-def forget_password(username: str, db: Session = Depends(get_db)):
-    user = get_user(db, username)
+def forget_password(username: ForgetPassword, db: Session = Depends(get_db)):
+    user = get_user(db, username.username)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
 
@@ -163,6 +174,7 @@ def forget_password(username: str, db: Session = Depends(get_db)):
 
     # For this example, you will return the token
     return {"message": "An email has been sent to reset your password."}
+
 
 @app.get("/reset", response_class=HTMLResponse)
 def reset_password(request: Request, token: str):
