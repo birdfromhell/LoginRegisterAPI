@@ -31,7 +31,7 @@ class UserDBModel(Base):
     email = Column(String(255), unique=True, index=True)
     password_hashed = Column(String(255))
     reset_password_token = Column(String(255))  # added this line, you'd want to customize this for your use case
-    disabled = Column(Boolean, default=False)
+    disabled = Column(Boolean, default=True)
 
 
 Base.metadata.create_all(bind=engine)
@@ -72,6 +72,11 @@ class ForgetPassword(BaseModel):
 class ResetPasswordForm(BaseModel):
     password: str
     token: str
+
+
+class UserUpdate(BaseModel):
+    fullname: Optional[str] = None
+    email: Optional[str] = None
 
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -130,10 +135,11 @@ def root():
     content = {"message": "Hello, World!"}
     return content
 
+
 @app.post("/token", response_model=Token)
 def login_for_access_token(
-    form_data: OAuth2PasswordRequestForm = Depends(),
-    db: Session = Depends(get_db)
+        form_data: OAuth2PasswordRequestForm = Depends(),
+        db: Session = Depends(get_db)
 ):
     user = authenticate_user(db, form_data.username, form_data.password)
     if user is None or not user.email:
@@ -220,6 +226,25 @@ def submit_new_password(reset_password_form: ResetPasswordForm, db: Session = De
     user.password_hashed = get_password_hash(reset_password_form.password)
     db.commit()
     return {"message": "Password changed successfully"}
+
+
+@app.put("/user/{user_id}")
+def update_user(user_id: int, user: UserUpdate, db: Session = Depends(get_db)):
+    db_user = db.query(UserDBModel).filter(UserDBModel.id == user_id).first()
+    if not db_user:
+        raise HTTPException(status_code=404, detail="User not found")
+    if user.fullname:
+        db_user.fullname = user.fullname
+    if user.email:
+        try:
+            validate_email(user.email)
+            db_user.email = user.email
+        except EmailNotValidError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+
+    db.commit()
+
+    return {"message": "User updated successfully"}
 
 
 if __name__ == "__main__":
