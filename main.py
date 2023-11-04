@@ -1,4 +1,6 @@
 from typing import Optional
+
+from email_validator import validate_email, EmailNotValidError
 from fastapi import FastAPI, HTTPException, Depends, status, Form
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from fastapi.responses import RedirectResponse
@@ -29,6 +31,7 @@ class UserDBModel(Base):
     id = Column(Integer, primary_key=True, index=True)
     username = Column(String(255), unique=True, index=True)
     fullname = Column(String(255), index=True)
+    email = Column(String(255), unique=True, index=True)
     password_hashed = Column(String(255))
     disabled = Column(Boolean, default=False)
 
@@ -50,6 +53,7 @@ class Token(BaseModel):
 
 class User(BaseModel):
     username: str
+    email: str
     fullname: str
     password: str
     disabled: Optional[bool] = False
@@ -64,7 +68,7 @@ class TokenData(BaseModel):
 
 
 class ForgetPassword(BaseModel):
-    username: str
+    email: str
 
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -89,8 +93,8 @@ def get_db():
         db.close()
 
 
-def get_user(db: Session, username: str):
-    return db.query(UserDBModel).filter(UserDBModel.username == username).first()
+def get_user(db: Session, email: str):
+    return db.query(UserDBModel).filter(UserDBModel.email == email).first()
 
 
 def authenticate_user(db: Session, username: str, password: str):
@@ -116,14 +120,13 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
 @app.get("/")
 def root():
     headers = {"ngrok-skip-browser-warning": "1"}
-    content = {"message": "Hello, World!"}
-    return JSONResponse(content=content, headers=headers)
+    content = {"message": "Hello, World!"}@app.get("/reset", response_class=HTMLResponse)
 
 
 @app.post("/token", response_model=Token)
 def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
     user = authenticate_user(db, form_data.username, form_data.password)
-    if not user:
+    if user is None or not user.email:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect username or password",
@@ -135,21 +138,29 @@ def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(), db:
     )
     return {"access_token": access_token, "token_type": "bearer", "message": f"Welcome {form_data.username}"}
 
-
 @app.post("/register")
 def register_user(user: User, db: Session = Depends(get_db)):
-    db_user = get_user(db, user.username)
+    db_user = get_user(db, user.email)
     if db_user:
         raise HTTPException(status_code=400, detail="Username already registered")
+
+    # validating email
+    try:
+        validate_email(user.email)
+    except EmailNotValidError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
     hashed_password = get_password_hash(user.password)
-    db.add(UserDBModel(username=user.username, fullname=user.fullname, password_hashed=hashed_password))
+    db.add(
+        UserDBModel(username=user.username, email=user.email, fullname=user.fullname, password_hashed=hashed_password))
     db.commit()
-    return {"username": user.username, "fullname": user.fullname, "message": "Successfully registered"}
+    return {"username": user.username, "email": user.email, "fullname": user.fullname,
+            "message": "Successfully registered"}
 
 
 @app.post("/forget_password")
-def forget_password(username: ForgetPassword, db: Session = Depends(get_db)):
-    user = get_user(db, username.username)
+def forget_password(user_email: ForgetPassword, db: Session = Depends(get_db)):
+    user = get_user(db, user_email.email)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
 
@@ -161,20 +172,23 @@ def forget_password(username: ForgetPassword, db: Session = Depends(get_db)):
 
     # This is the email content
     email_content = f"""
-    Hi {username}!
+    Hi {user.username}!
     Click the link below to reset your password.
     http://127.0.0.1:8000/reset?token={reset_password_code}
     If you didn't request a password reset, just ignore this email.
-    """.encode("utf8")
+    """
+
+    # Merge subject and content into one message
+    msg = "Subject: {}\n\n{}".format(email_subject, email_content)
 
     # Now, you would send the email
-    with SMTP("smtp.mail.com") as smtp:  # Specify your SMTP settings
-        smtp.login("youremail@mail.com", "yourpassword")  # Specify your credential here
-        smtp.sendmail('youremail@mail.com', user.username, email_subject, email_content)
+    with SMTP("smtp.mailgun.org") as smtp:  # Specify your SMTP settings
+        smtp.login("postmaster@sandbox1e844abd04cf40daafd02d812e2b299c.mailgun.org",
+                   "5e18985928b90982fa2a2cecae25c87b-3e508ae1-6e87e9be")  # Specify your credential here
+        smtp.sendmail('postmaster@sandbox1e844abd04cf40daafd02d812e2b299c.mailgun.org', user.email, msg)
 
     # For this example, you will return the token
     return {"message": "An email has been sent to reset your password."}
-
 
 @app.get("/reset", response_class=HTMLResponse)
 def reset_password(request: Request, token: str):
