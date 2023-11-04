@@ -1,9 +1,7 @@
 from typing import Optional
-
 from email_validator import validate_email, EmailNotValidError
-from fastapi import FastAPI, HTTPException, Depends, status, Form
+from fastapi import FastAPI, HTTPException, Depends, status
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
-from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 import jwt
@@ -14,9 +12,8 @@ from sqlalchemy.ext.declarative import declarative_base
 from passlib.context import CryptContext
 from smtplib import SMTP
 import secrets
-
 from starlette.requests import Request
-from starlette.responses import HTMLResponse, JSONResponse
+from starlette.responses import HTMLResponse
 from starlette.templating import Jinja2Templates
 
 SQLALCHEMY_DATABASE_URL = "mysql+mysqlconnector://root:root@localhost/login_register"
@@ -33,6 +30,7 @@ class UserDBModel(Base):
     fullname = Column(String(255), index=True)
     email = Column(String(255), unique=True, index=True)
     password_hashed = Column(String(255))
+    reset_password_token = Column(String(255))  # added this line, you'd want to customize this for your use case
     disabled = Column(Boolean, default=False)
 
 
@@ -71,10 +69,13 @@ class ForgetPassword(BaseModel):
     email: str
 
 
+class ResetPasswordForm(BaseModel):
+    password: str
+    token: str
+
+
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
-
-forgot_password_token: str = secrets.token_urlsafe(30)
 
 
 def verify_password(plain_password, hashed_password):
@@ -97,12 +98,18 @@ def get_user(db: Session, email: str):
     return db.query(UserDBModel).filter(UserDBModel.email == email).first()
 
 
-def authenticate_user(db: Session, username: str, password: str):
-    user = get_user(db, username)
+def get_user_by_username(db: Session, username: str):
+    return db.query(UserDBModel).filter(UserDBModel.username == username).first()
+
+
+def authenticate_user(db: Session, username_or_email: str, password: str):
+    user = get_user(db, username_or_email)
     if not user:
-        return False
+        user = get_user_by_username(db, username_or_email)
+    if user is None:
+        return None
     if not verify_password(password, user.password_hashed):
-        return False
+        return None
     return user
 
 
@@ -120,11 +127,14 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
 @app.get("/")
 def root():
     headers = {"ngrok-skip-browser-warning": "1"}
-    content = {"message": "Hello, World!"}@app.get("/reset", response_class=HTMLResponse)
-
+    content = {"message": "Hello, World!"}
+    return content
 
 @app.post("/token", response_model=Token)
-def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
+def login_for_access_token(
+    form_data: OAuth2PasswordRequestForm = Depends(),
+    db: Session = Depends(get_db)
+):
     user = authenticate_user(db, form_data.username, form_data.password)
     if user is None or not user.email:
         raise HTTPException(
@@ -136,14 +146,17 @@ def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(), db:
     access_token = create_access_token(
         data={"sub": user.username}, expires_delta=access_token_expires
     )
-    return {"access_token": access_token, "token_type": "bearer", "message": f"Welcome {form_data.username}"}
+    return {"access_token": access_token, "token_type": "bearer", "message": f"Welcome {user.fullname}"}
+
 
 @app.post("/register")
 def register_user(user: User, db: Session = Depends(get_db)):
-    db_user = get_user(db, user.email)
+    db_user = get_user_by_username(db, user.username)
     if db_user:
         raise HTTPException(status_code=400, detail="Username already registered")
-
+    db_email = get_user(db, user.email)
+    if db_email:
+        raise HTTPException(status_code=400, detail="Email already registered")
     # validating email
     try:
         validate_email(user.email)
@@ -167,6 +180,10 @@ def forget_password(user_email: ForgetPassword, db: Session = Depends(get_db)):
     # Generate a reset password code
     reset_password_code = secrets.token_urlsafe(20)
 
+    # Add reset_token to user record in db
+    user.reset_password_token = reset_password_code
+    db.commit()
+
     # This is the email subject
     email_subject = "Reset Your Password"
 
@@ -174,7 +191,7 @@ def forget_password(user_email: ForgetPassword, db: Session = Depends(get_db)):
     email_content = f"""
     Hi {user.username}!
     Click the link below to reset your password.
-    http://127.0.0.1:8000/reset?token={reset_password_code}
+http://127.0.0.1:8000/reset?token={reset_password_code}
     If you didn't request a password reset, just ignore this email.
     """
 
@@ -182,17 +199,27 @@ def forget_password(user_email: ForgetPassword, db: Session = Depends(get_db)):
     msg = "Subject: {}\n\n{}".format(email_subject, email_content)
 
     # Now, you would send the email
-    with SMTP("smtp.mailgun.org") as smtp:  # Specify your SMTP settings
-        smtp.login("postmaster@sandbox1e844abd04cf40daafd02d812e2b299c.mailgun.org",
-                   "5e18985928b90982fa2a2cecae25c87b-3e508ae1-6e87e9be")  # Specify your credential here
-        smtp.sendmail('postmaster@sandbox1e844abd04cf40daafd02d812e2b299c.mailgun.org', user.email, msg)
+    with SMTP("smtp.mailersend.net") as smtp:  # Specify your SMTP settings
+        smtp.login("MS_rpUZKr@ababil.me",
+                   "muuzLZW6Ti3rus01")  # Specify your credential here
+        smtp.sendmail('MS_rpUZKr@ababil.me', user.email, msg)
 
-    # For this example, you will return the token
     return {"message": "An email has been sent to reset your password."}
+
 
 @app.get("/reset", response_class=HTMLResponse)
 def reset_password(request: Request, token: str):
     return templates.TemplateResponse("reset_password.html", {"request": request, "token": token})
+
+
+@app.post("/submit_new_password")
+def submit_new_password(reset_password_form: ResetPasswordForm, db: Session = Depends(get_db)):
+    user = db.query(UserDBModel).filter(UserDBModel.reset_password_token == reset_password_form.token).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="Token not found")
+    user.password_hashed = get_password_hash(reset_password_form.password)
+    db.commit()
+    return {"message": "Password changed successfully"}
 
 
 if __name__ == "__main__":
