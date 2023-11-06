@@ -15,8 +15,7 @@ import secrets
 from starlette.requests import Request
 from starlette.responses import HTMLResponse
 from starlette.templating import Jinja2Templates
-from jwt import JWTError
-
+from jwt.exceptions import InvalidTokenError
 
 SQLALCHEMY_DATABASE_URL = "mysql+mysqlconnector://root:root@localhost/login_register"
 engine = create_engine(SQLALCHEMY_DATABASE_URL)
@@ -244,7 +243,7 @@ async def update_user(user_id: int, user: UserUpdate, db: Session = Depends(get_
         if username is None:
             raise credentials_exception
         token_data = TokenData(username=username)
-    except JWTError:
+    except InvalidTokenError:
         raise credentials_exception
 
     user = get_user(db, token_data.username)
@@ -281,7 +280,7 @@ async def read_user(user_id: int, db: Session = Depends(get_db), token: str = De
         if username is None:
             raise credentials_exception
         token_data = TokenData(username=username)
-    except JWTError:
+    except InvalidTokenError:
         raise credentials_exception
 
     user = get_user(db, token_data.username)
