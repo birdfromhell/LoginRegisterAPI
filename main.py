@@ -15,6 +15,8 @@ import secrets
 from starlette.requests import Request
 from starlette.responses import HTMLResponse
 from starlette.templating import Jinja2Templates
+from jwt import JWTError
+
 
 SQLALCHEMY_DATABASE_URL = "mysql+mysqlconnector://root:root@localhost/login_register"
 engine = create_engine(SQLALCHEMY_DATABASE_URL)
@@ -229,7 +231,26 @@ def submit_new_password(reset_password_form: ResetPasswordForm, db: Session = De
 
 
 @app.put("/user/{user_id}")
-def update_user(user_id: int, user: UserUpdate, db: Session = Depends(get_db)):
+async def update_user(user_id: int, user: UserUpdate, db: Session = Depends(get_db),
+                      token: str = Depends(oauth2_scheme)):
+    credentials_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Could not validate credentials",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        username: str = payload.get("sub")
+        if username is None:
+            raise credentials_exception
+        token_data = TokenData(username=username)
+    except JWTError:
+        raise credentials_exception
+
+    user = get_user(db, token_data.username)
+    if user is None:
+        raise credentials_exception
+
     db_user = db.query(UserDBModel).filter(UserDBModel.id == user_id).first()
     if not db_user:
         raise HTTPException(status_code=404, detail="User not found")
@@ -246,6 +267,32 @@ def update_user(user_id: int, user: UserUpdate, db: Session = Depends(get_db)):
 
     return {"message": "User updated successfully"}
 
+
+@app.get("/user/{user_id}", response_model=User)
+async def read_user(user_id: int, db: Session = Depends(get_db), token: str = Depends(oauth2_scheme)):
+    credentials_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Could not validate credentials",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        username: str = payload.get("sub")
+        if username is None:
+            raise credentials_exception
+        token_data = TokenData(username=username)
+    except JWTError:
+        raise credentials_exception
+
+    user = get_user(db, token_data.username)
+    if user is None:
+        raise credentials_exception
+
+    db_user = db.query(UserDBModel).filter(UserDBModel.id == user_id).first()
+    if db_user is None:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    return db_user
 
 if __name__ == "__main__":
     import uvicorn
