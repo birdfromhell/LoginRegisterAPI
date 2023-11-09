@@ -45,6 +45,7 @@ ACCESS_TOKEN_EXPIRE_MINUTES = 30
 
 
 class Token(BaseModel):
+    id: str
     access_token: str
     token_type: str
     message: str
@@ -132,7 +133,6 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
 
 @app.get("/")
 def root():
-    headers = {"ngrok-skip-browser-warning": "1"}
     content = {"message": "Hello, World!"}
     return content
 
@@ -153,7 +153,8 @@ def login_for_access_token(
     access_token = create_access_token(
         data={"sub": user.username}, expires_delta=access_token_expires
     )
-    return {"access_token": access_token, "token_type": "bearer", "message": f"Welcome {user.fullname}"}
+    return {"id": f"{user.id}", "access_token": access_token, "token_type": "bearer",
+            "message": f"Welcome {user.fullname}"}
 
 
 @app.post("/register")
@@ -292,6 +293,7 @@ async def read_user(user_id: int, db: Session = Depends(get_db), token: str = De
         raise HTTPException(status_code=404, detail="User not found")
 
     return db_user
+
 
 if __name__ == "__main__":
     import uvicorn

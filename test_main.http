@@ -1,11 +1,40 @@
-# Test your FastAPI endpoints
-
-GET http://127.0.0.1:8000/
-Accept: application/json
+# Login Register API
 
 ###
+# @name Register
+POST http://localhost:8000/register
+Content-Type: application/json
 
-GET http://127.0.0.1:8000/hello/User
-Accept: application/json
+{
+  "username": "farel",
+  "fullname": "Farel",
+  "email": "bil@gmail.com",
+  "password": "ababil",
+  "disabled": false
+}
 
 ###
+# @name Login
+POST http://localhost:8000/token
+Content-Type: application/x-www-form-urlencoded
+
+username = farel &
+password = ababil
+
+###
+# @name Forget Password
+POST http://127.0.0.1:8000/forget_password
+Content-Type: application/json
+
+{
+  "email": "bil@ababil.me"
+}
+
+###
+# @name Change Name
+GET https://127.0.0.1:8000/
+
+###
+# @name Get Data
+GET http://localhost:8000/user/1
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJmYXJlbCIsImV4cCI6MTY5OTUxNDA3MH0.LRaOZK_dTHQboE9COqd3Zcob9LX1Lcm-cI93JdRdmMw
