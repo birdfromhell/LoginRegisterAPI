@@ -16,6 +16,7 @@ from starlette.requests import Request
 from starlette.responses import HTMLResponse
 from starlette.templating import Jinja2Templates
 from jwt.exceptions import InvalidTokenError
+from fastapi import FastAPI
 
 SQLALCHEMY_DATABASE_URL = "mysql+mysqlconnector://root:root@localhost/login_register"
 engine = create_engine(SQLALCHEMY_DATABASE_URL)
@@ -199,7 +200,7 @@ def forget_password(user_email: ForgetPassword, db: Session = Depends(get_db)):
     email_content = f"""
     Hi {user.username}!
     Click the link below to reset your password.
-http://127.0.0.1:8000/reset?token={reset_password_code}
+    http://127.0.0.1:8000/reset?token={reset_password_code}
     If you didn't request a password reset, just ignore this email.
     """
 
