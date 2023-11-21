@@ -24,7 +24,7 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 templates = Jinja2Templates(directory="templates")  # assumes a templates directory
 
-
+# Data
 class UserDBModel(Base):
     __tablename__ = "users"
     id = Column(Integer, primary_key=True, index=True)
